@@ -140,33 +140,33 @@ bool onPIGS() //QPIGS<cr>: Device general status parameters inquiry
   {
     _qRaw.QPIGS = _commandBuffer;
     int index = 1; //after the starting '('
-      _qpigsMessage.gridV = getNextFloat(_commandBuffer, index);               //1
-      _qpigsMessage.gridHz = getNextFloat(_commandBuffer, index);              //2
-      _qpigsMessage.acOutV = getNextFloat(_commandBuffer, index);              //3
-      _qpigsMessage.acOutHz = getNextFloat(_commandBuffer, index);             //4
-      _qpigsMessage.acOutVa = (short)getNextLong(_commandBuffer, index);       //5
-      _qpigsMessage.acOutW = (short)getNextLong(_commandBuffer, index);        //6
-      _qpigsMessage.acOutPercent = (byte)getNextLong(_commandBuffer, index);   //7
-      _qpigsMessage.busV = (short)getNextLong(_commandBuffer, index);          //8
-      _qpigsMessage.battV = getNextFloat(_commandBuffer, index);               //9
-      _qpigsMessage.battChargeA = (byte)getNextLong(_commandBuffer, index);    //10
-      _qpigsMessage.battPercent = (byte)getNextLong(_commandBuffer, index);    //11
-      _qpigsMessage.heatSinkDegC = getNextLong(_commandBuffer, index) / 10.0;        //12
-      _qpigsMessage.solarA = (byte)getNextLong(_commandBuffer, index);         //13
-      _qpigsMessage.solarV = getNextFloat(_commandBuffer, index);         //14
-      _qpigsMessage.sccBattV = getNextFloat(_commandBuffer, index);            //15
-      _qpigsMessage.battDischargeA = (byte)getNextLong(_commandBuffer, index); //16
+      _qpigsMessage.gridV = getNextFloat(_commandBuffer, index);               //b
+      _qpigsMessage.gridHz = getNextFloat(_commandBuffer, index);              //C
+      _qpigsMessage.acOutV = getNextFloat(_commandBuffer, index);              //D
+      _qpigsMessage.acOutHz = getNextFloat(_commandBuffer, index);             //E
+      _qpigsMessage.acOutVa = (short)getNextLong(_commandBuffer, index);       //F
+      _qpigsMessage.acOutW = (short)getNextLong(_commandBuffer, index);        //G
+      _qpigsMessage.acOutPercent = (byte)getNextLong(_commandBuffer, index);   //H
+      _qpigsMessage.busV = (short)getNextLong(_commandBuffer, index);          //I
+      _qpigsMessage.battV = getNextFloat(_commandBuffer, index);               //j
+      _qpigsMessage.battChargeA = (byte)getNextLong(_commandBuffer, index);    //k
+      _qpigsMessage.battPercent = (byte)getNextLong(_commandBuffer, index);    //o
+      _qpigsMessage.heatSinkDegC = getNextLong(_commandBuffer, index) / 10.0;        //P
+      _qpigsMessage.solarA = (byte)getNextLong(_commandBuffer, index);         //r
+      _qpigsMessage.solarV = getNextFloat(_commandBuffer, index);         //t
+      _qpigsMessage.sccBattV = getNextFloat(_commandBuffer, index);            //u
+      _qpigsMessage.battDischargeA = (byte)getNextLong(_commandBuffer, index); //w
 
-      _qpigsMessage.addSbuPriorityVersion = getNextBit(_commandBuffer, index);             //17
-      _qpigsMessage.isConfigChanged = getNextBit(_commandBuffer, index);                   //18
-      _qpigsMessage.isSccFirmwareUpdated = getNextBit(_commandBuffer, index);               //19
+      _qpigsMessage.addSbuPriorityVersion = getNextBit(_commandBuffer, index);             //x
+      _qpigsMessage.isConfigChanged = getNextBit(_commandBuffer, index);                   
+      _qpigsMessage.isSccFirmwareUpdated = getNextBit(_commandBuffer, index);               
       _qpigsMessage.loadEnabled = getNextBit(_commandBuffer, index);
       _qpigsMessage.battsteady = getNextBit(_commandBuffer, index);
       _qpigsMessage.ischarging = getNextBit(_commandBuffer, index);
       _qpigsMessage.chargingfromSCC = getNextBit(_commandBuffer, index);
       _qpigsMessage.chargingfromAC =  getNextBit(_commandBuffer, index);
 
-      _qpigsMessage.battVOffsetforFanson = getNextLong(_commandBuffer, index);
+      _qpigsMessage.battVOffsetforFanson = getNextLong(_commandBuffer, index);  
       _qpigsMessage.EEPROMver = getNextLong(_commandBuffer, index);
       _qpigsMessage.solarW = getNextFloat(_commandBuffer, index);                           //20
       _qpigsMessage.isfloatCharge = getNextBit(_commandBuffer, index);
@@ -517,6 +517,7 @@ void requestInverter(qCommand com)
   case qCommand::QMUCHGCR: if(sendCommand("QMUCHGCR")) onMUCHGCR();break; //vollständig
   case qCommand::QBOOT: break;
   case qCommand::QOPM: break;
+  case qCommand::QPGS: break;
   }
 }
 

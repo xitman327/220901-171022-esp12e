@@ -8,13 +8,16 @@
 #include <ArduinoJson.h>
 
 //#define BLYNK_DEBUG        // Optional, this enables more detailed prints
-#define BLYNK_PRINT Serial1 // Defines the object that is used for printing
+//#define BLYNK_PRINT Serial1 // Defines the object that is used for printing
 
 #include <BlynkSimpleEsp8266.h>
 #include <TimeLib.h>
 #include <WidgetRTC.h>
 
 #include "ESPTelnet.h"
+
+static const char ntpServerName[] = "us.pool.ntp.org";
+const int timeZone = 2;     // Central European Time
 
 char blynk_server[40] = "xitos.uk.to";
 char api_token[40] = "YOUR_API_TOKEN";
@@ -28,6 +31,7 @@ void saveConfigCallback () {
 }
 
 void launch_captive_portal(){
+  Serial.println("captive portal");
  if (SPIFFS.begin()) {
 //    Serial.println("mounted file system");
     if (SPIFFS.exists("/config.json")) {
@@ -123,7 +127,8 @@ WidgetTable table(V32);
 BLYNK_CONNECTED(){
   delay(200);
   rtc.begin();
-  term.clear();
+  //term.clear();
+  Blynk.virtualWrite(V51, "\n");
   Blynk.virtualWrite(V51, ESP.getResetReason() + '\r');
 }
 BLYNK_WRITE(V30){
@@ -153,13 +158,19 @@ ESPTelnet telnet;
 serialsource src;
 #define tl_timeout 1000
 uint32_t tl_tm;
+// bool req_captive;
+
+// IRAM_ATTR void _request_captive(){
+//   req_captive = 1;  
+//   Serial.println("req portal");
+// }
 
 void setup() {
   WiFi.mode(WIFI_STA);
-  Serial.begin(2400);
+  Serial.begin(115200);
   
   launch_captive_portal();
-  
+  WiFi.setHostname("WiFi_Module");
   ArduinoOTA.setHostname("WiFi_Module");
   ArduinoOTA.setPort(8266);
   ArduinoOTA.onStart([](){
@@ -168,12 +179,18 @@ void setup() {
   ArduinoOTA.begin();
   
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(14, INPUT_PULLUP);
-  Serial1.begin(115200); 
+  pinMode(16, INPUT_PULLUP);
+  if(digitalRead(16) == 0){
+    Serial.println("req portal");
+    //req_captive = 0;
+    launch_captive_portal();
+  }
+  // attachInterrupt(digitalPinToInterrupt(16), _request_captive, FALLING);
+
+  //Serial1.begin(115200); 
   delay(3000); 
   Blynk.config(api_token, blynk_server, 8080);
   //Blynk.config(api_token, IPAddress(192,168,2,2), 8080);
-  setSyncInterval(10 * 60); // Sync interval in seconds (10 minutes)
 
   telnet.setLineMode(true);
   telnet.onInputReceived([](String str) {
@@ -187,13 +204,13 @@ void setup() {
   telnet.onConnect([](String ip){
     tl_tm = millis();
     src = tlnet;
-    Serial1.println("Client Connected " + ip);
+    Serial.println("Client Connected " + ip);
     Blynk.virtualWrite(V51, "Client Connected " + ip + '\n');
   });
   telnet.onDisconnect([](String ip){
     tl_tm = millis();
     src = blnk;
-    Serial1.println("Client Disconnected " + ip);
+    Serial.println("Client Disconnected " + ip);
     Blynk.virtualWrite(V51, "Client Disconnected " + ip + '\n');
   });
   bool res = telnet.begin(23);
@@ -210,26 +227,85 @@ void setup() {
   }
 
   if(res){
-    Serial1.println("telnet started");
+    Serial.println("telnet started");
     Blynk.virtualWrite(V51, "telnet started\n");
   }else{
-    Serial1.println("tellnet failled");
+    Serial.println("tellnet failled");
     Blynk.virtualWrite(V51, "tellnet failled\n");
   }
+  
+  setSyncInterval(10 * 60); // Sync interval in seconds (10 minutes)
+
+  Serial.begin(2400);
 
 }
 
 #define wp_refresh 1000
 #define tl_refresh 100
 uint32_t tm_wp, tm_kw, tm_tl;
-uint32_t hour_kw[4], day_kw[4], month_kw[4];
+float hour_kw[4], day_kw[4], month_kw[4];
 bool askInverterOnce = 1;
 uint16_t blk_num, req_id;
 
+#define htosval 3600.0
+int current_hour, current_day, current_month;
+void calculatekw(){
+  uint32_t tm_passed = (millis() - tm_kw) / 1000;
+  tm_kw = millis();
+  hour_kw[0] += (_qpigsMessage.solarW / htosval) * tm_passed;
+  hour_kw[1] += (((_qpigsMessage.battDischargeA - _qpigsMessage.battChargeA)* _qpigsMessage.battV) / htosval) * tm_passed;
+  hour_kw[2] += (_qpigsMessage.acOutW / htosval) * tm_passed;
+  hour_kw[3] += ((_qpigsMessage.battChargeA - (_qpigsMessage.solarW - _qpigsMessage.acOutW) + (_qpigsMessage.acOutW - _qpigsMessage.battDischargeA) ) / htosval) * tm_passed;
+  
+  if(hour() != current_hour){
+    current_hour = hour();
+    day_kw[0] += hour_kw[0];
+    day_kw[1] += hour_kw[1];
+    day_kw[2] += hour_kw[2];
+    day_kw[3] += hour_kw[3];
+    hour_kw[0] = 0;
+    hour_kw[1] = 0;
+    hour_kw[2] = 0;
+    hour_kw[3] = 0;
+    Blynk.virtualWrite(V20, day_kw[0]);
+    Blynk.virtualWrite(V21, day_kw[1]);
+    Blynk.virtualWrite(V22, day_kw[2]);
+    Blynk.virtualWrite(V23, day_kw[3]);
+  }
+
+  if(day() != current_day){
+    current_day = day();
+    month_kw[0] += day_kw[0];
+    month_kw[1] += day_kw[1];
+    month_kw[2] += day_kw[2];
+    month_kw[3] += day_kw[3];
+    day_kw[0] = 0;
+    day_kw[1] = 0;
+    day_kw[2] = 0;
+    day_kw[3] = 0;
+  }
+  if(month() != current_month){
+    current_month = month();
+    Blynk.virtualWrite(V40, month_kw[0]);
+    Blynk.virtualWrite(V41, month_kw[1]);
+    Blynk.virtualWrite(V42, month_kw[2]);
+    Blynk.virtualWrite(V43, month_kw[3]);
+    month_kw[0] = 0;
+    month_kw[1] = 0;
+    month_kw[2] = 0;
+    month_kw[3] = 0;
+    
+  }
+  
+}
+
 void loop() {
-  ArduinoOTA.handle();
-  Blynk.run();
-  telnet.loop();
+
+  if(WiFi.status() == WL_CONNECTED){
+    ArduinoOTA.handle();
+    Blynk.run();
+    telnet.loop();
+  }
 
   if(millis() - tl_tm > tl_timeout && src == tlnet){
     src = blnk;
@@ -283,7 +359,7 @@ void loop() {
 
     switch(Blynk.connected()? blk_num : 99){
       case 0:
-        Blynk.virtualWrite(V1, _qpigsMessage.solarV * _qpigsMessage.solarA);//_qpigsMessage.solarW);
+        Blynk.virtualWrite(V1, _qpigsMessage.solarV * _qpigsMessage.solarA);
         Blynk.virtualWrite(V2, _qpigsMessage.acOutPercent);
         Blynk.virtualWrite(V3, _qpigsMessage.solarV);
         Blynk.virtualWrite(V4, _qpigsMessage.solarA);
@@ -294,13 +370,15 @@ void loop() {
         Blynk.virtualWrite(V6, _qpigsMessage.acOutW / _qpigsMessage.acOutV);
         Blynk.virtualWrite(V7, _qpigsMessage.battPercent);
         Blynk.virtualWrite(V8, _qpigsMessage.battV);
-        Blynk.virtualWrite(V9, _qpigsMessage.battDischargeA - _qpigsMessage.battChargeA);
         if(_qpigsMessage.battDischargeA - _qpigsMessage.battChargeA > 0){
           Blynk.setProperty(V10, "color", "#ED9D00");//yelloow
+          Blynk.virtualWrite(V10, (_qpigsMessage.battDischargeA - _qpigsMessage.battChargeA));
+          Blynk.virtualWrite(V9, (_qpigsMessage.battDischargeA - _qpigsMessage.battChargeA) * _qpigsMessage.battV);
         }else{
           Blynk.setProperty(V10, "color", "#23C48E");//green
+          Blynk.virtualWrite(V10, (_qpigsMessage.battChargeA - _qpigsMessage.battDischargeA));
+          Blynk.virtualWrite(V9, (_qpigsMessage.battChargeA - _qpigsMessage.battDischargeA) * _qpigsMessage.battV);
         }
-        Blynk.virtualWrite(V10, (_qpigsMessage.battDischargeA - _qpigsMessage.battChargeA) * 1);
         blk_num++;
         break;
       case 2:
@@ -312,84 +390,37 @@ void loop() {
         blk_num++;
         break;
       case 3:
-        Blynk.virtualWrite(V15, _qpigsMessage.battPercent);
-        Blynk.virtualWrite(V16, _qpigsMessage.battDischargeA - _qpigsMessage.battChargeA);
-        Blynk.virtualWrite(V17, 0);
-        Blynk.virtualWrite(V18, _qpigsMessage.battV);
-        blk_num++;
-        break;
-      case 4:
-        Blynk.virtualWrite(V20, _qpigsMessage.battPercent);//solar kw
-        Blynk.virtualWrite(V21, _qpigsMessage.battDischargeA - _qpigsMessage.battChargeA);//battery kw
-        Blynk.virtualWrite(V22, 0);//load kw
-        Blynk.virtualWrite(V23, _qpigsMessage.battV);//grid kw
+         Blynk.virtualWrite(V15, _qpigsMessage.acOutW);
+         Blynk.virtualWrite(V24, (_qpigsMessage.battChargeA * _qpigsMessage.chargingfromAC) * _qpigsMessage.gridV);//grid kw
+         Blynk.virtualWrite(V20, _qpigsMessage.sccBattV);
+         Blynk.virtualWrite(V21, _qpigsMessage.busV);
+        // Blynk.virtualWrite(V18, _qpigsMessage.battV);
         lcd.print(0,0, "Mode:");
         lcd.print(0,1, _qmodMessage.operationMode);
         blk_num++;
         break;
+      // case 4:
+      //   //Blynk.virtualWrite(V20, _qpigsMessage.battPercent);//solar kw
+      //   //Blynk.virtualWrite(V21, _qpigsMessage.battDischargeA - _qpigsMessage.battChargeA);//battery kw
+      //   //Blynk.virtualWrite(V22, 0);//load kw
+      //   //Blynk.virtualWrite(V23, _qpigsMessage.battV);//grid kw
+      //   lcd.print(0,0, "Mode:");
+      //   lcd.print(0,1, _qmodMessage.operationMode);
+      //   blk_num++;
+      //   break;
       default:
       blk_num = 0;
       break;
     }
+
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   }
   
 
-if(!digitalRead(14)){
-  launch_captive_portal();
-}
-    
-
-}
-#define htosval 3600.0
-int current_hour, current_day, current_month;
-void calculatekw(){
-  uint32_t tm_passed = (millis() - tm_kw) / 1000;
-  tm_kw = millis();
-  hour_kw[0] += (_qpigsMessage.solarW / htosval) * tm_passed;
-  hour_kw[1] += (((_qpigsMessage.battDischargeA - _qpigsMessage.battChargeA)* _qpigsMessage.battV) / htosval) * tm_passed;
-  hour_kw[2] += (_qpigsMessage.acOutW / htosval) * tm_passed;
-  hour_kw[3] += ((_qpigsMessage.battChargeA - (_qpigsMessage.solarW - _qpigsMessage.acOutW) + (_qpigsMessage.acOutW - _qpigsMessage.battDischargeA) ) / htosval) * tm_passed;
-  
-  if(hour() != current_hour){
-    current_hour = hour();
-    day_kw[0] += hour_kw[0];
-    day_kw[1] += hour_kw[1];
-    day_kw[2] += hour_kw[2];
-    day_kw[3] += hour_kw[3];
-    hour_kw[0] = 0;
-    hour_kw[1] = 0;
-    hour_kw[2] = 0;
-    hour_kw[3] = 0;
+  if(digitalRead(16) == 0){
+    //Serial.println("req portal");
+    Blynk.virtualWrite(V51, "req portal\n");
+    //req_captive = 0;
+    launch_captive_portal();
   }
-
-  if(day() != current_day){
-    current_day = day();
-    month_kw[0] += day_kw[0];
-    month_kw[1] += day_kw[1];
-    month_kw[2] += day_kw[2];
-    month_kw[3] += day_kw[3];
-    Blynk.virtualWrite(V20, day_kw[0]);
-    Blynk.virtualWrite(V21, day_kw[1]);
-    Blynk.virtualWrite(V22, day_kw[2]);
-    Blynk.virtualWrite(V23, day_kw[3]);
-    day_kw[0] = 0;
-    day_kw[1] = 0;
-    day_kw[2] = 0;
-    day_kw[3] = 0;
-  }
-  if(month() != current_month){
-    current_month = month();
-    Blynk.virtualWrite(V40, month_kw[0]);
-    Blynk.virtualWrite(V41, month_kw[1]);
-    Blynk.virtualWrite(V42, month_kw[2]);
-    Blynk.virtualWrite(V43, month_kw[3]);
-    month_kw[0] = 0;
-    month_kw[1] = 0;
-    month_kw[2] = 0;
-    month_kw[3] = 0;
-    
-  }
-  
 }
-
-
